@@ -10,7 +10,7 @@ export async function POST(req: Request) {
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: 'Gemini API Key is not configured on Vercel' }, { status: 500 });
+      return NextResponse.json({ error: 'GEMINI_API_KEY is missing in Vercel environment variables.' }, { status: 500 });
     }
 
     const response = await fetch(
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
             {
               parts: [
                 {
-                  text: `You are an expert SEO engineer. Generate valid JSON-LD schema markup for the following business or URL: "${prompt}". Return ONLY the raw JSON-LD inside a <script type="application/ld+json"> tag or valid JSON format without markdown code block formatting if possible, or clean JSON code blocks.`
+                  text: `You are an expert SEO engineer. Generate valid JSON-LD schema markup for the following business or URL: "${prompt}". Return ONLY valid JSON-LD structured data enclosed in a markdown code block.`
                 }
               ]
             }
@@ -33,7 +33,16 @@ export async function POST(req: Request) {
     );
 
     const data = await response.json();
-    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No schema generated.';
+
+    if (!response.ok) {
+      return NextResponse.json({ error: data.error?.message || 'Gemini API error occurred' }, { status: response.status });
+    }
+
+    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!generatedText) {
+      return NextResponse.json({ error: 'Gemini returned an empty response. Try a more descriptive text prompt instead of a bare URL.' }, { status: 500 });
+    }
 
     return NextResponse.json({ schema: generatedText });
   } catch (error: any) {
