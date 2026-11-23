@@ -1,6 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+const DAILY_FREE_LIMIT = 5;
+const LOCAL_USAGE_KEY = 'schemacraft_daily_usage_v1';
 
 const SCHEMA_TYPES = [
   {
@@ -88,15 +91,51 @@ const VALUE_CARDS = [
   },
 ];
 
+function getTodayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [selectedType, setSelectedType] = useState<string>('Auto-Detect');
   const [schema, setSchema] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [limitReached, setLimitReached] = useState(false);
+  const [remainingFree, setRemainingFree] = useState<number>(DAILY_FREE_LIMIT);
   const [copiedMode, setCopiedMode] = useState<'json' | 'script' | null>(null);
   const [showPasteGuide, setShowPasteGuide] = useState(false);
   const [activePlatform, setActivePlatform] = useState<'wordpress' | 'shopify' | 'webflow'>('wordpress');
+
+  useEffect(() => {
+    try {
+      const today = getTodayKey();
+      const raw = localStorage.getItem(LOCAL_USAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.day === today && typeof parsed?.used === 'number') {
+          const left = Math.max(0, DAILY_FREE_LIMIT - parsed.used);
+          setRemainingFree(left);
+          setLimitReached(left === 0);
+          return;
+        }
+      }
+      localStorage.setItem(LOCAL_USAGE_KEY, JSON.stringify({ day: today, used: 0 }));
+    } catch {
+      // Ignore storage access errors
+    }
+  }, []);
+
+  const syncLocalRemaining = (left: number) => {
+    setRemainingFree(left);
+    setLimitReached(left === 0);
+    try {
+      const used = Math.max(0, DAILY_FREE_LIMIT - left);
+      localStorage.setItem(LOCAL_USAGE_KEY, JSON.stringify({ day: getTodayKey(), used }));
+    } catch {
+      // Ignore storage access errors
+    }
+  };
 
   const activeOption =
     SCHEMA_TYPES.find((t) => t.id === selectedType) || SCHEMA_TYPES[0];
@@ -106,7 +145,7 @@ export default function Home() {
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || limitReached) return;
 
     setLoading(true);
     setError('');
@@ -122,7 +161,15 @@ export default function Home() {
 
       const data = await res.json();
 
+      if (typeof data?.remainingFree === 'number') {
+        syncLocalRemaining(data.remainingFree);
+      }
+
       if (!res.ok) {
+        if (res.status === 429 || data?.limitReached) {
+          syncLocalRemaining(0);
+          setLimitReached(true);
+        }
         setError(data.error || 'Failed to generate schema.');
       } else {
         setSchema(data.schema);
@@ -163,7 +210,7 @@ export default function Home() {
           <div className="space-y-3 text-center">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono tracking-wider uppercase">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              SchemaCraft AI // v1.3 Live &amp; Operational
+              SchemaCraft AI // v1.4 Live &amp; Operational
             </div>
             <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white">
               Automated JSON-LD Schema Generator
@@ -178,6 +225,21 @@ export default function Home() {
             onSubmit={handleGenerate}
             className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4"
           >
+            {/* Daily Free Quota Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-zinc-800/70 text-xs font-mono">
+              <span className="text-zinc-400">
+                Starter Plan:{' '}
+                <strong
+                  className={
+                    remainingFree === 0 ? 'text-amber-400' : 'text-emerald-400'
+                  }
+                >
+                  {remainingFree} / {DAILY_FREE_LIMIT} free schemas left today
+                </strong>
+              </span>
+              <span className="text-zinc-500">Resets daily</span>
+            </div>
+
             {/* Schema Type Quick-Pick Pills */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -216,19 +278,51 @@ export default function Home() {
                 type="text"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder={activeOption.placeholder}
-                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition"
+                disabled={limitReached}
+                placeholder={
+                  limitReached
+                    ? 'Daily free limit reached (5/5 used today)'
+                    : activeOption.placeholder
+                }
+                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-500 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition"
               />
               <button
                 type="submit"
-                disabled={loading || !prompt.trim()}
+                disabled={loading || !prompt.trim() || limitReached}
                 className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-zinc-950 font-semibold transition cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
               >
-                {loading ? 'Crafting...' : 'Generate Schema'}
+                {loading
+                  ? 'Crafting...'
+                  : limitReached
+                    ? 'Daily Limit Reached'
+                    : 'Generate Schema'}
               </button>
             </div>
 
-            {error && (
+            {limitReached && (
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-sm text-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-emerald-300">
+                    You&apos;ve reached today&apos;s 5 free schema generations.
+                  </div>
+                  <div className="text-xs text-zinc-400 mt-0.5">
+                    Pro ($12/mo) with unlimited generations, multi-schema @graph bundles, and saved history is coming soon.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pricingEl = document.getElementById('pricing');
+                    pricingEl?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="px-3.5 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition cursor-pointer whitespace-nowrap"
+                >
+                  View Pro Plan ↓
+                </button>
+              </div>
+            )}
+
+            {error && !limitReached && (
               <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
                 {error}
               </div>
@@ -260,7 +354,7 @@ export default function Home() {
                     </button>
                   </div>
                 </div>
-                <pre className="p-5 overflow-x-auto text-sm font-mono text-emerald-300 leading-relaxed">
+                <pre className="p-5 whitespace-pre-wrap break-words text-sm font-mono text-emerald-300 leading-relaxed">
                   <code>{schema}</code>
                 </pre>
               </div>
@@ -362,7 +456,7 @@ export default function Home() {
         </section>
 
         {/* Simple Pricing Tiers */}
-        <section className="space-y-8 border-t border-zinc-900 pt-16">
+        <section id="pricing" className="space-y-8 border-t border-zinc-900 pt-16">
           <div className="text-center space-y-2">
             <span className="text-xs font-mono text-emerald-400 uppercase tracking-wider">
               Simple Plans
@@ -386,8 +480,8 @@ export default function Home() {
                   $0 <span className="text-sm font-normal text-zinc-400">/ month</span>
                 </div>
                 <ul className="space-y-2.5 text-sm text-zinc-300">
+                  <li>✓ {DAILY_FREE_LIMIT} free schema generations per day</li>
                   <li>✓ All 7 schema types &amp; Auto-Detect</li>
-                  <li>✓ Instant JSON &amp; &lt;script&gt; tag copy</li>
                   <li>✓ WordPress, Shopify &amp; Webflow guides</li>
                   <li>✓ Validated for Google Rich Results</li>
                 </ul>
