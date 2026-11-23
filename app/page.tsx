@@ -70,6 +70,24 @@ const PLATFORM_GUIDES = [
   },
 ] as const;
 
+const VALUE_CARDS = [
+  {
+    title: 'Zero Syntax Errors',
+    description:
+      'Every output is validated for strict JSON-LD compliance before display, eliminating broken brackets, missing @context tags, and invalid properties.',
+  },
+  {
+    title: 'Rich Result Eligibility',
+    description:
+      'Structured data helps Google display business hours, product pricing, availability, and article metadata directly in search results.',
+  },
+  {
+    title: 'Built for Non-Coders',
+    description:
+      'One-click <script> wrapping and step-by-step placement guides for WordPress, Shopify, and Webflow—no developer required.',
+  },
+];
+
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [selectedType, setSelectedType] = useState<string>('Auto-Detect');
@@ -133,183 +151,289 @@ export default function Home() {
     }
   };
 
+  const scrollToGenerator = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center p-6 selection:bg-emerald-500/30">
-      <div className="w-full max-w-3xl space-y-8">
-        {/* Header */}
-        <div className="space-y-3 text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono tracking-wider uppercase">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            SchemaCraft AI // v1.2 Live &amp; Operational
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white">
-            Automated JSON-LD Schema Generator
-          </h1>
-          <p className="text-zinc-400 text-base sm:text-lg max-w-2xl mx-auto">
-            Paste any website URL or business description below to instantly generate valid Google-compliant structured data.
-          </p>
-        </div>
-
-        {/* Input Card */}
-        <form
-          onSubmit={handleGenerate}
-          className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4"
-        >
-          {/* Schema Type Quick-Pick Pills */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono text-zinc-400 uppercase tracking-wider">
-                Schema Type
-              </span>
-              <span className="text-xs text-zinc-500">
-                {selectedType === 'Auto-Detect'
-                  ? 'AI picks best match'
-                  : `Forcing @type: ${selectedType}`}
-              </span>
+    <main className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center px-6 py-14 sm:py-20 selection:bg-emerald-500/30">
+      <div className="w-full max-w-4xl space-y-20">
+        {/* Hero & Interactive Generator */}
+        <section className="max-w-3xl mx-auto space-y-8">
+          <div className="space-y-3 text-center">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono tracking-wider uppercase">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              SchemaCraft AI // v1.3 Live &amp; Operational
             </div>
-            <div className="flex flex-wrap gap-2">
-              {SCHEMA_TYPES.map((type) => {
-                const isSelected = selectedType === type.id;
-                return (
+            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white">
+              Automated JSON-LD Schema Generator
+            </h1>
+            <p className="text-zinc-400 text-base sm:text-lg max-w-2xl mx-auto">
+              Paste any website URL or business description below to instantly generate valid Google-compliant structured data.
+            </p>
+          </div>
+
+          {/* Input Card */}
+          <form
+            onSubmit={handleGenerate}
+            className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4"
+          >
+            {/* Schema Type Quick-Pick Pills */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono text-zinc-400 uppercase tracking-wider">
+                  Schema Type
+                </span>
+                <span className="text-xs text-zinc-500">
+                  {selectedType === 'Auto-Detect'
+                    ? 'AI picks best match'
+                    : `Forcing @type: ${selectedType}`}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {SCHEMA_TYPES.map((type) => {
+                  const isSelected = selectedType === type.id;
+                  return (
+                    <button
+                      key={type.id}
+                      type="button"
+                      onClick={() => setSelectedType(type.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border ${
+                        isSelected
+                          ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
+                          : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                      }`}
+                    >
+                      {type.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="text"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder={activeOption.placeholder}
+                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition"
+              />
+              <button
+                type="submit"
+                disabled={loading || !prompt.trim()}
+                className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-zinc-950 font-semibold transition cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {loading ? 'Crafting...' : 'Generate Schema'}
+              </button>
+            </div>
+
+            {error && (
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+                {error}
+              </div>
+            )}
+          </form>
+
+          {/* Output Card */}
+          {schema && (
+            <div className="space-y-4">
+              <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 bg-zinc-900 border-b border-zinc-800">
+                  <span className="text-xs font-mono text-zinc-400 uppercase tracking-wider">
+                    Generated JSON-LD Output
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCopy('json')}
+                      className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition cursor-pointer"
+                    >
+                      {copiedMode === 'json' ? 'JSON Copied!' : 'Copy JSON'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy('script')}
+                      className="px-3.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-medium transition cursor-pointer"
+                    >
+                      {copiedMode === 'script' ? 'Script Copied!' : 'Copy with <script> Tag'}
+                    </button>
+                  </div>
+                </div>
+                <pre className="p-5 overflow-x-auto text-sm font-mono text-emerald-300 leading-relaxed">
+                  <code>{schema}</code>
+                </pre>
+              </div>
+
+              {/* Where do I paste this? Collapsible Helper */}
+              <div className="bg-zinc-900/60 border border-zinc-800/90 rounded-2xl overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
                   <button
-                    key={type.id}
                     type="button"
-                    onClick={() => setSelectedType(type.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border ${
-                      isSelected
-                        ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
-                        : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
-                    }`}
+                    onClick={() => setShowPasteGuide((prev) => !prev)}
+                    className="flex items-center gap-2 text-left text-sm font-medium text-zinc-200 hover:text-emerald-300 transition cursor-pointer"
                   >
-                    {type.label}
+                    <span className="text-emerald-400 font-mono text-xs">
+                      {showPasteGuide ? '▼' : '▶'}
+                    </span>
+                    <span>Where do I paste this? (WordPress, Shopify &amp; Webflow)</span>
                   </button>
-                );
-              })}
-            </div>
-          </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input
-              type="text"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder={activeOption.placeholder}
-              className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition"
-            />
-            <button
-              type="submit"
-              disabled={loading || !prompt.trim()}
-              className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-zinc-950 font-semibold transition cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
-            >
-              {loading ? 'Crafting...' : 'Generate Schema'}
-            </button>
-          </div>
+                  <a
+                    href="https://search.google.com/test/rich-results"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-mono text-emerald-400 hover:text-emerald-300 underline underline-offset-4 transition"
+                  >
+                    Verify in Google Rich Results Test ↗
+                  </a>
+                </div>
 
-          {error && (
-            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-              {error}
+                {showPasteGuide && (
+                  <div className="px-5 pb-5 pt-2 border-t border-zinc-800/80 space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      {PLATFORM_GUIDES.map((platform) => {
+                        const isActive = activePlatform === platform.id;
+                        return (
+                          <button
+                            key={platform.id}
+                            type="button"
+                            onClick={() => setActivePlatform(platform.id)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border ${
+                              isActive
+                                ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
+                                : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                            }`}
+                          >
+                            {platform.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="bg-zinc-950/70 border border-zinc-800/80 rounded-xl p-4 space-y-2.5 text-sm text-zinc-300">
+                      <div className="text-xs font-mono text-zinc-400">
+                        Recommended button:{' '}
+                        <span className="text-emerald-300">{currentGuide.copyButton}</span>
+                      </div>
+                      <ol className="list-decimal list-inside space-y-1.5 text-zinc-300 leading-relaxed">
+                        {currentGuide.steps.map((step, index) => (
+                          <li key={index}>{step}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
-        </form>
+        </section>
 
-        {/* Output Card */}
-        {schema && (
-          <div className="space-y-4">
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
-              <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 bg-zinc-900 border-b border-zinc-800">
-                <span className="text-xs font-mono text-zinc-400 uppercase tracking-wider">
-                  Generated JSON-LD Output
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleCopy('json')}
-                    className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition cursor-pointer"
-                  >
-                    {copiedMode === 'json' ? 'JSON Copied!' : 'Copy JSON'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy('script')}
-                    className="px-3.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-medium transition cursor-pointer"
-                  >
-                    {copiedMode === 'script' ? 'Script Copied!' : 'Copy with <script> Tag'}
-                  </button>
+        {/* How It Works & Value Props */}
+        <section className="space-y-8 border-t border-zinc-900 pt-16">
+          <div className="text-center space-y-2">
+            <span className="text-xs font-mono text-emerald-400 uppercase tracking-wider">
+              Why Structured Data Matters
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white">
+              Turn Plain Business Details Into Search-Ready JSON-LD
+            </h2>
+            <p className="text-zinc-400 text-sm sm:text-base max-w-2xl mx-auto">
+              Search engines rely on Schema.org markup to understand your business, products, and content. SchemaCraft AI builds clean code in seconds.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {VALUE_CARDS.map((card, idx) => (
+              <div
+                key={card.title}
+                className="bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-6 space-y-3"
+              >
+                <div className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono text-xs font-bold">
+                  0{idx + 1}
                 </div>
+                <h3 className="text-lg font-semibold text-white">{card.title}</h3>
+                <p className="text-sm text-zinc-400 leading-relaxed">
+                  {card.description}
+                </p>
               </div>
-              <pre className="p-5 overflow-x-auto text-sm font-mono text-emerald-300 leading-relaxed">
-                <code>{schema}</code>
-              </pre>
+            ))}
+          </div>
+        </section>
+
+        {/* Simple Pricing Tiers */}
+        <section className="space-y-8 border-t border-zinc-900 pt-16">
+          <div className="text-center space-y-2">
+            <span className="text-xs font-mono text-emerald-400 uppercase tracking-wider">
+              Simple Plans
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white">
+              Start Generating Free. Upgrade When You Scale.
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+            {/* Free Tier */}
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 sm:p-8 flex flex-col justify-between space-y-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-white">Starter</h3>
+                  <span className="px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 text-xs font-mono">
+                    Free Forever
+                  </span>
+                </div>
+                <div className="text-3xl font-bold text-white">
+                  $0 <span className="text-sm font-normal text-zinc-400">/ month</span>
+                </div>
+                <ul className="space-y-2.5 text-sm text-zinc-300">
+                  <li>✓ All 7 schema types &amp; Auto-Detect</li>
+                  <li>✓ Instant JSON &amp; &lt;script&gt; tag copy</li>
+                  <li>✓ WordPress, Shopify &amp; Webflow guides</li>
+                  <li>✓ Validated for Google Rich Results</li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={scrollToGenerator}
+                className="w-full py-2.5 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-sm font-semibold transition cursor-pointer"
+              >
+                Use Starter Free ↑
+              </button>
             </div>
 
-            {/* Where do I paste this? Collapsible Helper */}
-            <div className="bg-zinc-900/60 border border-zinc-800/90 rounded-2xl overflow-hidden">
-              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
-                <button
-                  type="button"
-                  onClick={() => setShowPasteGuide((prev) => !prev)}
-                  className="flex items-center gap-2 text-left text-sm font-medium text-zinc-200 hover:text-emerald-300 transition cursor-pointer"
-                >
-                  <span className="text-emerald-400 font-mono text-xs">
-                    {showPasteGuide ? '▼' : '▶'}
+            {/* Pro Tier */}
+            <div className="bg-zinc-900/90 border border-emerald-500/40 rounded-2xl p-6 sm:p-8 flex flex-col justify-between space-y-6 shadow-xl">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-white">Pro</h3>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
+                    Coming Soon
                   </span>
-                  <span>Where do I paste this? (WordPress, Shopify &amp; Webflow)</span>
-                </button>
-
-                <a
-                  href="https://search.google.com/test/rich-results"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-mono text-emerald-400 hover:text-emerald-300 underline underline-offset-4 transition"
-                >
-                  Verify in Google Rich Results Test ↗
-                </a>
-              </div>
-
-              {showPasteGuide && (
-                <div className="px-5 pb-5 pt-2 border-t border-zinc-800/80 space-y-4">
-                  {/* Platform Tabs */}
-                  <div className="flex flex-wrap gap-2">
-                    {PLATFORM_GUIDES.map((platform) => {
-                      const isActive = activePlatform === platform.id;
-                      return (
-                        <button
-                          key={platform.id}
-                          type="button"
-                          onClick={() => setActivePlatform(platform.id)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border ${
-                            isActive
-                              ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
-                              : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
-                          }`}
-                        >
-                          {platform.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Step-by-Step Instructions */}
-                  <div className="bg-zinc-950/70 border border-zinc-800/80 rounded-xl p-4 space-y-2.5 text-sm text-zinc-300">
-                    <div className="text-xs font-mono text-zinc-400">
-                      Recommended button:{' '}
-                      <span className="text-emerald-300">{currentGuide.copyButton}</span>
-                    </div>
-                    <ol className="list-decimal list-inside space-y-1.5 text-zinc-300 leading-relaxed">
-                      {currentGuide.steps.map((step, index) => (
-                        <li key={index}>{step}</li>
-                      ))}
-                    </ol>
-                  </div>
                 </div>
-              )}
+                <div className="text-3xl font-bold text-white">
+                  $12 <span className="text-sm font-normal text-zinc-400">/ month</span>
+                </div>
+                <ul className="space-y-2.5 text-sm text-zinc-300">
+                  <li>✓ Unlimited daily schema generations</li>
+                  <li>✓ Live URL auto-scan &amp; metadata extraction</li>
+                  <li>✓ Multi-schema page bundles (@graph)</li>
+                  <li>✓ Saved schema history &amp; client exports</li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={scrollToGenerator}
+                className="w-full py-2.5 px-4 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-sm font-semibold transition cursor-pointer"
+              >
+                Try Free While Pro Launches
+              </button>
             </div>
           </div>
-        )}
+        </section>
 
         {/* Footer */}
-        <footer className="text-center text-xs text-zinc-500 font-mono">
-          Powered by Gemini AI • Zero human maintenance required
+        <footer className="text-center text-xs text-zinc-500 font-mono border-t border-zinc-900 pt-8">
+          SchemaCraft AI • Powered by Gemini AI • Built for WordPress, Shopify &amp; Webflow
         </footer>
       </div>
     </main>
