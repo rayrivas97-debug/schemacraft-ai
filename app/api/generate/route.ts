@@ -6,11 +6,61 @@ const MODELS = [
   'gemini-3.5-flash-lite',
 ];
 
+const DAILY_FREE_LIMIT = 5;
+const USAGE_COOKIE_NAME = 'sc_daily_usage';
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function getUtcDayKey(): string {
+  return new Date().toISOString().slice(0, 10); // e.g., "2026-11-23"
+}
+
+function parseCookieHeader(cookieHeader: string | null): Record<string, string> {
+  if (!cookieHeader) return {};
+  return cookieHeader.split(';').reduce<Record<string, string>>((acc, part) => {
+    const idx = part.indexOf('=');
+    if (idx > -1) {
+      const key = part.slice(0, idx).trim();
+      const val = part.slice(idx + 1).trim();
+      acc[key] = decodeURIComponent(val);
+    }
+    return acc;
+  }, {});
+}
+
+function readDailyUsage(req: Request): { day: string; count: number } {
+  const today = getUtcDayKey();
+  const cookies = parseCookieHeader(req.headers.get('cookie'));
+  const raw = cookies[USAGE_COOKIE_NAME];
+
+  if (!raw) return { day: today, count: 0 };
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed?.day === today && typeof parsed?.count === 'number') {
+      return { day: today, count: Math.max(0, parsed.count) };
+    }
+  } catch {
+    // Ignore malformed cookie and start fresh for today
+  }
+
+  return { day: today, count: 0 };
+}
+
+function attachUsageCookie(res: NextResponse, day: string, count: number): NextResponse {
+  const payload = encodeURIComponent(JSON.stringify({ day, count }));
+  res.cookies.set(USAGE_COOKIE_NAME, payload, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: 60 * 60 * 48, // 48 hours
+  });
+  return res;
+}
 
 function isValidHttpUrl(input: string): URL | null {
   const trimmed = input.trim();
-  // Only treat as a URL if it looks like a single URL without spaces
   if (/\s/.test(trimmed)) return null;
 
   try {
@@ -21,7 +71,6 @@ function isValidHttpUrl(input: string): URL | null {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return null;
     }
-    // Require a valid-looking hostname with a dot (e.g., example.com)
     if (!parsed.hostname.includes('.')) {
       return null;
     }
@@ -66,7 +115,7 @@ async function fetchPageContext(urlObj: URL): Promise<string | null> {
       signal: controller.signal,
       headers: {
         'User-Agent':
-          'Mozilla/5.0 (compatible; SchemaCraftAI/1.3; +https://schemacraft-ai-phi.vercel.app)',
+          'Mozilla/5.0 (compatible; SchemaCraftAI/1.4; +https://schemacraft-ai-phi.vercel.app)',
         Accept: 'text/html,application/xhtml+xml',
       },
       redirect: 'follow',
@@ -120,6 +169,21 @@ async function fetchPageContext(urlObj: URL): Promise<string | null> {
 
 export async function POST(req: Request) {
   try {
+    const usage = readDailyUsage(req);
+
+    if (usage.count >= DAILY_FREE_LIMIT) {
+      const limitRes = NextResponse.json(
+        {
+          error: `You've used all ${DAILY_FREE_LIMIT} free schema generations for today. Upgrade to Pro for unlimited generations.`,
+          limitReached: true,
+          remainingFree: 0,
+          dailyLimit: DAILY_FREE_LIMIT,
+        },
+        { status: 429 }
+      );
+      return attachUsageCookie(limitRes, usage.day, usage.count);
+    }
+
     const { prompt, schemaType } = await req.json();
 
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -208,10 +272,16 @@ Rules:
             parsed['@type'] = schemaType;
           }
           const formattedJson = JSON.stringify(parsed, null, 2);
-          return NextResponse.json({
+          const nextCount = usage.count + 1;
+          const remainingFree = Math.max(0, DAILY_FREE_LIMIT - nextCount);
+
+          const successRes = NextResponse.json({
             schema: formattedJson,
             urlScanned: Boolean(pageContext),
+            remainingFree,
+            dailyLimit: DAILY_FREE_LIMIT,
           });
+          return attachUsageCookie(successRes, usage.day, nextCount);
         } catch {
           lastStatus = 502;
           continue;
