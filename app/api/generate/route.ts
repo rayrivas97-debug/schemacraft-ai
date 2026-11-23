@@ -4,6 +4,8 @@ const MODELS = [
   'gemini-4-hydrogen',
   'gemini-3.8-flash',
   'gemini-3.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
 ];
 
 export async function POST(req: Request) {
