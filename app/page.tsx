@@ -7,7 +7,7 @@ export default function Home() {
   const [schema, setSchema] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [copiedType, setCopiedType] = useState<'json' | 'script' | null>(null);
+  const [copiedMode, setCopiedMode] = useState<'json' | 'script' | null>(null);
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -16,7 +16,7 @@ export default function Home() {
     setLoading(true);
     setError('');
     setSchema('');
-    setCopiedType(null);
+    setCopiedMode(null);
 
     try {
       const res = await fetch('/api/generate', {
@@ -43,12 +43,17 @@ export default function Home() {
     ? `<script type="application/ld+json">\n${schema}\n</script>`
     : '';
 
-  const handleCopy = (mode: 'json' | 'script') => {
+  const handleCopy = async (mode: 'json' | 'script') => {
     if (!schema) return;
     const textToCopy = mode === 'script' ? scriptWrappedSchema : schema;
-    navigator.clipboard.writeText(textToCopy);
-    setCopiedType(mode);
-    setTimeout(() => setCopiedType(null), 2000);
+
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedMode(mode);
+      setTimeout(() => setCopiedMode(null), 2000);
+    } catch {
+      setError('Unable to copy to clipboard. Please copy manually.');
+    }
   };
 
   return (
@@ -110,14 +115,14 @@ export default function Home() {
                   onClick={() => handleCopy('json')}
                   className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition cursor-pointer"
                 >
-                  {copiedType === 'json' ? 'JSON Copied!' : 'Copy JSON'}
+                  {copiedMode === 'json' ? 'JSON Copied!' : 'Copy JSON'}
                 </button>
                 <button
                   type="button"
                   onClick={() => handleCopy('script')}
                   className="px-3.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-medium transition cursor-pointer"
                 >
-                  {copiedType === 'script' ? 'Script Copied!' : 'Copy with <script> Tag'}
+                  {copiedMode === 'script' ? 'Script Copied!' : 'Copy with <script> Tag'}
                 </button>
               </div>
             </div>
