@@ -8,7 +8,7 @@ const MODELS = [
 
 export async function POST(req: Request) {
   try {
-    const { prompt } = await req.json();
+    const { prompt, schemaType } = await req.json();
 
     if (!prompt) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
@@ -22,12 +22,17 @@ export async function POST(req: Request) {
       );
     }
 
+    const typeInstruction =
+      schemaType && schemaType !== 'Auto-Detect'
+        ? `You MUST use "@type": "${schemaType}" (or the most specific valid Schema.org subtype of ${schemaType}) as the primary schema entity.`
+        : 'Automatically choose the most appropriate valid Schema.org "@type" for the input.';
+
     const payload = {
       contents: [
         {
           parts: [
             {
-              text: `You are an expert SEO engineer. Generate valid JSON-LD schema markup for the following business or URL: "${prompt}". Return ONLY raw JSON without markdown code fences or extra commentary.`,
+              text: `You are an expert SEO engineer. Generate valid, Google Rich Results compliant JSON-LD schema markup for the following business, product, page, or URL: "${prompt}". ${typeInstruction} Return ONLY raw JSON without markdown code fences or extra commentary.`,
             },
           ],
         },
