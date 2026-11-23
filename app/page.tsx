@@ -40,6 +40,36 @@ const SCHEMA_TYPES = [
   },
 ] as const;
 
+const PLATFORM_GUIDES = [
+  {
+    id: 'wordpress',
+    name: 'WordPress',
+    copyButton: 'Copy with <script> Tag',
+    steps: [
+      'Open the page or post in the WordPress Block Editor and add a Custom HTML block (or use a header/footer plugin like WPCode for sitewide schema).',
+      'Paste the full <script type="application/ld+json"> snippet into the block and click Update / Publish.',
+    ],
+  },
+  {
+    id: 'shopify',
+    name: 'Shopify',
+    copyButton: 'Copy with <script> Tag',
+    steps: [
+      'In Shopify Admin, go to Online Store → Themes → ••• → Edit code, and open layout/theme.liquid (or a specific product/page section).',
+      'Paste the full <script type="application/ld+json"> snippet right before the closing </head> tag and click Save.',
+    ],
+  },
+  {
+    id: 'webflow',
+    name: 'Webflow',
+    copyButton: 'Copy with <script> Tag',
+    steps: [
+      'Open your project in Webflow Designer, click Pages (P), and click the gear icon next to the page you want to mark up.',
+      'Scroll down to Custom Code → Inside <head> tag, paste the full <script type="application/ld+json"> snippet, save, and publish.',
+    ],
+  },
+] as const;
+
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [selectedType, setSelectedType] = useState<string>('Auto-Detect');
@@ -47,9 +77,14 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copiedMode, setCopiedMode] = useState<'json' | 'script' | null>(null);
+  const [showPasteGuide, setShowPasteGuide] = useState(false);
+  const [activePlatform, setActivePlatform] = useState<'wordpress' | 'shopify' | 'webflow'>('wordpress');
 
   const activeOption =
     SCHEMA_TYPES.find((t) => t.id === selectedType) || SCHEMA_TYPES[0];
+
+  const currentGuide =
+    PLATFORM_GUIDES.find((p) => p.id === activePlatform) || PLATFORM_GUIDES[0];
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,7 +140,7 @@ export default function Home() {
         <div className="space-y-3 text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono tracking-wider uppercase">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            SchemaCraft AI // v1.1 Live &amp; Operational
+            SchemaCraft AI // v1.2 Live &amp; Operational
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white">
             Automated JSON-LD Schema Generator
@@ -179,31 +214,96 @@ export default function Home() {
 
         {/* Output Card */}
         {schema && (
-          <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
-            <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 bg-zinc-900 border-b border-zinc-800">
-              <span className="text-xs font-mono text-zinc-400 uppercase tracking-wider">
-                Generated JSON-LD Output
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleCopy('json')}
-                  className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition cursor-pointer"
-                >
-                  {copiedMode === 'json' ? 'JSON Copied!' : 'Copy JSON'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleCopy('script')}
-                  className="px-3.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-medium transition cursor-pointer"
-                >
-                  {copiedMode === 'script' ? 'Script Copied!' : 'Copy with <script> Tag'}
-                </button>
+          <div className="space-y-4">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 bg-zinc-900 border-b border-zinc-800">
+                <span className="text-xs font-mono text-zinc-400 uppercase tracking-wider">
+                  Generated JSON-LD Output
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCopy('json')}
+                    className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition cursor-pointer"
+                  >
+                    {copiedMode === 'json' ? 'JSON Copied!' : 'Copy JSON'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy('script')}
+                    className="px-3.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-medium transition cursor-pointer"
+                  >
+                    {copiedMode === 'script' ? 'Script Copied!' : 'Copy with <script> Tag'}
+                  </button>
+                </div>
               </div>
+              <pre className="p-5 overflow-x-auto text-sm font-mono text-emerald-300 leading-relaxed">
+                <code>{schema}</code>
+              </pre>
             </div>
-            <pre className="p-5 overflow-x-auto text-sm font-mono text-emerald-300 leading-relaxed">
-              <code>{schema}</code>
-            </pre>
+
+            {/* Where do I paste this? Collapsible Helper */}
+            <div className="bg-zinc-900/60 border border-zinc-800/90 rounded-2xl overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                <button
+                  type="button"
+                  onClick={() => setShowPasteGuide((prev) => !prev)}
+                  className="flex items-center gap-2 text-left text-sm font-medium text-zinc-200 hover:text-emerald-300 transition cursor-pointer"
+                >
+                  <span className="text-emerald-400 font-mono text-xs">
+                    {showPasteGuide ? '▼' : '▶'}
+                  </span>
+                  <span>Where do I paste this? (WordPress, Shopify &amp; Webflow)</span>
+                </button>
+
+                <a
+                  href="https://search.google.com/test/rich-results"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-mono text-emerald-400 hover:text-emerald-300 underline underline-offset-4 transition"
+                >
+                  Verify in Google Rich Results Test ↗
+                </a>
+              </div>
+
+              {showPasteGuide && (
+                <div className="px-5 pb-5 pt-2 border-t border-zinc-800/80 space-y-4">
+                  {/* Platform Tabs */}
+                  <div className="flex flex-wrap gap-2">
+                    {PLATFORM_GUIDES.map((platform) => {
+                      const isActive = activePlatform === platform.id;
+                      return (
+                        <button
+                          key={platform.id}
+                          type="button"
+                          onClick={() => setActivePlatform(platform.id)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border ${
+                            isActive
+                              ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
+                              : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                          }`}
+                        >
+                          {platform.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Step-by-Step Instructions */}
+                  <div className="bg-zinc-950/70 border border-zinc-800/80 rounded-xl p-4 space-y-2.5 text-sm text-zinc-300">
+                    <div className="text-xs font-mono text-zinc-400">
+                      Recommended button:{' '}
+                      <span className="text-emerald-300">{currentGuide.copyButton}</span>
+                    </div>
+                    <ol className="list-decimal list-inside space-y-1.5 text-zinc-300 leading-relaxed">
+                      {currentGuide.steps.map((step, index) => (
+                        <li key={index}>{step}</li>
+                      ))}
+                    </ol>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
