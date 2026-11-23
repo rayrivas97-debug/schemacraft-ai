@@ -22,25 +22,34 @@ export async function POST(req: Request) {
       );
     }
 
-    const typeInstruction =
-      schemaType && schemaType !== 'Auto-Detect'
-        ? `You MUST use "@type": "${schemaType}" (or the most specific valid Schema.org subtype of ${schemaType}) as the primary schema entity.`
-        : 'Automatically choose the most appropriate valid Schema.org "@type" for the input.';
+    const isForcedType = schemaType && schemaType !== 'Auto-Detect';
+    const typeInstruction = isForcedType
+      ? `You MUST set the top-level "@type" to exactly "${schemaType}". Do NOT substitute another type like SoftwareApplication or WebSite.`
+      : 'Automatically choose the single most appropriate valid Schema.org "@type" for the input.';
 
     const payload = {
       contents: [
         {
           parts: [
             {
-              text: `You are an expert SEO engineer. Generate valid, Google Rich Results compliant JSON-LD schema markup for the following business, product, page, or URL: "${prompt}". ${typeInstruction} Return ONLY raw JSON without markdown code fences or extra commentary.`,
+              text: `You are an expert SEO engineer. Generate a complete, valid, Google Rich Results compliant JSON-LD object for: "${prompt}".
+Rules:
+1. Always include "@context": "https://schema.org".
+2. ${typeInstruction}
+3. Keep the JSON concise and complete—do not include bloated arrays or unnecessary nested filler.
+4. Return ONLY a single valid JSON object.`,
             },
           ],
         },
       ],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        maxOutputTokens: 2048,
+        temperature: 0.2,
+      },
     };
 
-    let data: any = null;
-    let lastError = 'Gemini API error occurred';
+    let lastError = 'Unable to generate valid schema right now. Please try again.';
     let lastStatus = 500;
 
     for (let i = 0; i < MODELS.length; i++) {
@@ -53,43 +62,37 @@ export async function POST(req: Request) {
         body: JSON.stringify(payload),
       });
 
-      data = await response.json();
+      const data = await response.json();
 
-      if (response.ok) {
-        break;
+      if (!response.ok) {
+        lastStatus = response.status;
+        lastError = data?.error?.message || `Model ${model} failed`;
+        continue; // Immediately try the next model in MODELS
       }
 
-      lastStatus = response.status;
-      lastError = data?.error?.message || 'Gemini API error occurred';
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const cleaned = rawText
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
 
-      const isTransientLoad =
-        response.status === 503 ||
-        response.status === 429 ||
-        /high demand|overloaded|unavailable/i.test(lastError);
-
-      if (!isTransientLoad || i === MODELS.length - 1) {
-        return NextResponse.json({ error: lastError }, { status: lastStatus });
+      try {
+        // Verify JSON is 100% syntactically complete and not truncated
+        const parsed = JSON.parse(cleaned);
+        if (isForcedType && parsed['@type'] !== schemaType) {
+          parsed['@type'] = schemaType;
+        }
+        const formattedJson = JSON.stringify(parsed, null, 2);
+        return NextResponse.json({ schema: formattedJson });
+      } catch {
+        // If output was truncated or malformed JSON, fall over to the next model
+        lastError = 'Generated JSON was incomplete. Retrying on backup model failed.';
+        lastStatus = 502;
+        continue;
       }
     }
 
-    const generatedText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!generatedText) {
-      return NextResponse.json(
-        {
-          error:
-            'Gemini returned an empty response. Try a more descriptive text prompt instead of a bare URL.',
-        },
-        { status: 500 }
-      );
-    }
-
-    const cleanedSchema = generatedText
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/i, '')
-      .trim();
-
-    return NextResponse.json({ schema: cleanedSchema });
+    return NextResponse.json({ error: lastError }, { status: lastStatus });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || 'Internal Server Error' },
