@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const DAILY_FREE_LIMIT = 5;
 const LOCAL_USAGE_KEY = 'schemacraft_daily_usage_v1';
@@ -107,6 +107,14 @@ export default function Home() {
   const [showPasteGuide, setShowPasteGuide] = useState(false);
   const [activePlatform, setActivePlatform] = useState<'wordpress' | 'shopify' | 'webflow'>('wordpress');
 
+  // Pro Waitlist state
+  const [waitlistEmail, setWaitlistEmail] = useState('');
+  const [waitlistSource, setWaitlistSource] = useState('pricing_card');
+  const [waitlistLoading, setWaitlistLoading] = useState(false);
+  const [waitlistSuccess, setWaitlistSuccess] = useState('');
+  const [waitlistError, setWaitlistError] = useState('');
+  const waitlistInputRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => {
     try {
       const today = getTodayKey();
@@ -169,6 +177,7 @@ export default function Home() {
         if (res.status === 429 || data?.limitReached) {
           syncLocalRemaining(0);
           setLimitReached(true);
+          setWaitlistSource('daily_limit_banner');
         }
         setError(data.error || 'Failed to generate schema.');
       } else {
@@ -202,6 +211,47 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const jumpToWaitlist = (source: string) => {
+    setWaitlistSource(source);
+    const pricingEl = document.getElementById('pricing');
+    pricingEl?.scrollIntoView({ behavior: 'smooth' });
+    setTimeout(() => {
+      waitlistInputRef.current?.focus();
+    }, 350);
+  };
+
+  const handleWaitlistSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!waitlistEmail.trim()) return;
+
+    setWaitlistLoading(true);
+    setWaitlistError('');
+    setWaitlistSuccess('');
+
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: waitlistEmail.trim(), source: waitlistSource }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setWaitlistError(data.error || 'Could not join waitlist.');
+      } else {
+        setWaitlistSuccess(
+          data.message || "You're on the SchemaCraft AI Pro early-access list."
+        );
+        setWaitlistEmail('');
+      }
+    } catch {
+      setWaitlistError('Network error while joining waitlist. Please try again.');
+    } finally {
+      setWaitlistLoading(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center px-6 py-14 sm:py-20 selection:bg-emerald-500/30">
       <div className="w-full max-w-4xl space-y-20">
@@ -210,7 +260,7 @@ export default function Home() {
           <div className="space-y-3 text-center">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono tracking-wider uppercase">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              SchemaCraft AI // v1.4 Live &amp; Operational
+              SchemaCraft AI // v1.5 Live &amp; Operational
             </div>
             <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white">
               Automated JSON-LD Schema Generator
@@ -306,18 +356,15 @@ export default function Home() {
                     You&apos;ve reached today&apos;s 5 free schema generations.
                   </div>
                   <div className="text-xs text-zinc-400 mt-0.5">
-                    Pro ($12/mo) with unlimited generations, multi-schema @graph bundles, and saved history is coming soon.
+                    Join the Pro ($12/mo) waitlist for unlimited generations, @graph bundles, and saved history.
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    const pricingEl = document.getElementById('pricing');
-                    pricingEl?.scrollIntoView({ behavior: 'smooth' });
-                  }}
+                  onClick={() => jumpToWaitlist('daily_limit_banner')}
                   className="px-3.5 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition cursor-pointer whitespace-nowrap"
                 >
-                  View Pro Plan ↓
+                  Join Pro Waitlist ↓
                 </button>
               </div>
             )}
@@ -495,13 +542,13 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Pro Tier */}
+            {/* Pro Tier + Waitlist Capture */}
             <div className="bg-zinc-900/90 border border-emerald-500/40 rounded-2xl p-6 sm:p-8 flex flex-col justify-between space-y-6 shadow-xl">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-semibold text-white">Pro</h3>
                   <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
-                    Coming Soon
+                    Early Access
                   </span>
                 </div>
                 <div className="text-3xl font-bold text-white">
@@ -514,13 +561,43 @@ export default function Home() {
                   <li>✓ Saved schema history &amp; client exports</li>
                 </ul>
               </div>
-              <button
-                type="button"
-                onClick={scrollToGenerator}
-                className="w-full py-2.5 px-4 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-sm font-semibold transition cursor-pointer"
-              >
-                Try Free While Pro Launches
-              </button>
+
+              <form onSubmit={handleWaitlistSubmit} className="space-y-2.5 pt-2 border-t border-zinc-800/80">
+                <label
+                  htmlFor="pro-waitlist-email"
+                  className="block text-xs font-mono text-zinc-400"
+                >
+                  Get notified when Pro opens:
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    ref={waitlistInputRef}
+                    id="pro-waitlist-email"
+                    type="email"
+                    required
+                    value={waitlistEmail}
+                    onChange={(e) => setWaitlistEmail(e.target.value)}
+                    placeholder="you@domain.com"
+                    className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition"
+                  />
+                  <button
+                    type="submit"
+                    disabled={waitlistLoading || !waitlistEmail.trim()}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-zinc-950 text-sm font-semibold transition cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    {waitlistLoading ? 'Joining...' : 'Join Waitlist'}
+                  </button>
+                </div>
+
+                {waitlistSuccess && (
+                  <p className="text-xs text-emerald-300 font-medium">
+                    ✓ {waitlistSuccess}
+                  </p>
+                )}
+                {waitlistError && (
+                  <p className="text-xs text-red-400">{waitlistError}</p>
+                )}
+              </form>
             </div>
           </div>
         </section>
