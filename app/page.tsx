@@ -7,7 +7,7 @@ export default function Home() {
   const [schema, setSchema] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [copiedType, setCopiedType] = useState<'json' | 'script' | null>(null);
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -16,7 +16,7 @@ export default function Home() {
     setLoading(true);
     setError('');
     setSchema('');
-    setCopied(false);
+    setCopiedType(null);
 
     try {
       const res = await fetch('/api/generate', {
@@ -39,11 +39,16 @@ export default function Home() {
     }
   };
 
-  const handleCopy = () => {
+  const scriptWrappedSchema = schema
+    ? `<script type="application/ld+json">\n${schema}\n</script>`
+    : '';
+
+  const handleCopy = (mode: 'json' | 'script') => {
     if (!schema) return;
-    navigator.clipboard.writeText(schema);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const textToCopy = mode === 'script' ? scriptWrappedSchema : schema;
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedType(mode);
+    setTimeout(() => setCopiedType(null), 2000);
   };
 
   return (
@@ -95,16 +100,26 @@ export default function Home() {
         {/* Output Card */}
         {schema && (
           <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-3.5 bg-zinc-900 border-b border-zinc-800">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 bg-zinc-900 border-b border-zinc-800">
               <span className="text-xs font-mono text-zinc-400 uppercase tracking-wider">
                 Generated JSON-LD Output
               </span>
-              <button
-                onClick={handleCopy}
-                className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition cursor-pointer"
-              >
-                {copied ? 'Copied!' : 'Copy Code'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCopy('json')}
+                  className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition cursor-pointer"
+                >
+                  {copiedType === 'json' ? 'JSON Copied!' : 'Copy JSON'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCopy('script')}
+                  className="px-3.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-medium transition cursor-pointer"
+                >
+                  {copiedType === 'script' ? 'Script Copied!' : 'Copy with <script> Tag'}
+                </button>
+              </div>
             </div>
             <pre className="p-5 overflow-x-auto text-sm font-mono text-emerald-300 leading-relaxed">
               <code>{schema}</code>
