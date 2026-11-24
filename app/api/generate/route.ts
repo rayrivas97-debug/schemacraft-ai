@@ -1,309 +1,251 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-const MODELS = [
-  'gemini-4-hydrogen',
-  'gemini-3.8-flash',
-  'gemini-3.5-flash-lite',
-];
+const DAILY_LIMIT = 5;
+const COOKIE_NAME = 'sc_daily_usage';
+const MODELS = ['gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'];
 
-const DAILY_FREE_LIMIT = 5;
-const USAGE_COOKIE_NAME = 'sc_daily_usage';
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function getUtcDayKey(): string {
-  return new Date().toISOString().slice(0, 10); // e.g., "2026-11-23"
+function getTodayUTC(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function parseCookieHeader(cookieHeader: string | null): Record<string, string> {
-  if (!cookieHeader) return {};
-  return cookieHeader.split(';').reduce<Record<string, string>>((acc, part) => {
-    const idx = part.indexOf('=');
-    if (idx > -1) {
-      const key = part.slice(0, idx).trim();
-      const val = part.slice(idx + 1).trim();
-      acc[key] = decodeURIComponent(val);
-    }
-    return acc;
-  }, {});
-}
-
-function readDailyUsage(req: Request): { day: string; count: number } {
-  const today = getUtcDayKey();
-  const cookies = parseCookieHeader(req.headers.get('cookie'));
-  const raw = cookies[USAGE_COOKIE_NAME];
-
-  if (!raw) return { day: today, count: 0 };
-
+function readDailyCount(request: NextRequest, today: string): number {
   try {
+    const raw = request.cookies.get(COOKIE_NAME)?.value;
+    if (!raw) return 0;
     const parsed = JSON.parse(raw);
-    if (parsed?.day === today && typeof parsed?.count === 'number') {
-      return { day: today, count: Math.max(0, parsed.count) };
+    if (parsed.date === today && typeof parsed.count === 'number' && parsed.count >= 0) {
+      return parsed.count;
     }
   } catch {
-    // Ignore malformed cookie and start fresh for today
+    // Ignore malformed cookie and reset to 0
   }
-
-  return { day: today, count: 0 };
+  return 0;
 }
 
-function attachUsageCookie(res: NextResponse, day: string, count: number): NextResponse {
-  const payload = encodeURIComponent(JSON.stringify({ day, count }));
-  res.cookies.set(USAGE_COOKIE_NAME, payload, {
+function attachUsageCookie(response: NextResponse, today: string, count: number): NextResponse {
+  response.cookies.set({
+    name: COOKIE_NAME,
+    value: JSON.stringify({ date: today, count }),
     httpOnly: true,
-    sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
     path: '/',
-    maxAge: 60 * 60 * 48, // 48 hours
+    maxAge: 60 * 60 * 24,
   });
-  return res;
+  return response;
 }
 
-function isValidHttpUrl(input: string): URL | null {
-  const trimmed = input.trim();
-  if (/\s/.test(trimmed)) return null;
-
+function isValidHttpUrl(value: string): boolean {
   try {
-    const withProtocol = /^https?:\/\//i.test(trimmed)
-      ? trimmed
-      : `https://${trimmed}`;
-    const parsed = new URL(withProtocol);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return null;
-    }
-    if (!parsed.hostname.includes('.')) {
-      return null;
-    }
-    return parsed;
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:';
   } catch {
-    return null;
+    return false;
   }
 }
 
-function decodeHtmlEntities(str: string): string {
-  return str
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function extractMetaContent(html: string, attrName: string, attrValue: string): string {
-  const escapedAttr = attrValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex1 = new RegExp(
-    `<meta[^>]*${attrName}=["']${escapedAttr}["'][^>]*content=["']([^"']*)["'][^>]*>`,
-    'i'
-  );
-  const regex2 = new RegExp(
-    `<meta[^>]*content=["']([^"']*)["'][^>]*${attrName}=["']${escapedAttr}["'][^>]*>`,
-    'i'
-  );
-  const match = html.match(regex1) || html.match(regex2);
-  return match ? decodeHtmlEntities(match[1]) : '';
-}
-
-async function fetchPageContext(urlObj: URL): Promise<string | null> {
+async function scrapeUrlMetadata(targetUrl: string): Promise<string> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  const timeout = setTimeout(() => controller.abort(), 5000);
 
   try {
-    const res = await fetch(urlObj.toString(), {
+    const res = await fetch(targetUrl, {
       signal: controller.signal,
+      redirect: 'follow',
       headers: {
-        'User-Agent':
-          'Mozilla/5.0 (compatible; SchemaCraftAI/1.4; +https://schemacraft-ai-phi.vercel.app)',
+        'User-Agent': 'SchemaCraftAI-Bot/1.0 (+https://schema.org)',
         Accept: 'text/html,application/xhtml+xml',
       },
-      redirect: 'follow',
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return `URL provided: ${targetUrl} (HTTP ${res.status})`;
+    }
 
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
-      return null;
+      return `URL provided: ${targetUrl}`;
     }
 
-    const html = await res.text();
-    const cappedHtml = html.slice(0, 200_000);
+    const rawHtml = (await res.text()).slice(0, 200_000);
 
-    const titleMatch = cappedHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-    const title = titleMatch ? decodeHtmlEntities(titleMatch[1]) : '';
-    const metaDesc =
-      extractMetaContent(cappedHtml, 'name', 'description') ||
-      extractMetaContent(cappedHtml, 'property', 'og:description');
-    const ogTitle = extractMetaContent(cappedHtml, 'property', 'og:title');
-    const ogSiteName = extractMetaContent(cappedHtml, 'property', 'og:site_name');
-    const ogType = extractMetaContent(cappedHtml, 'property', 'og:type');
+    const titleMatch = rawHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const descMatch =
+      rawHtml.match(/<meta[^>]+name=["']description["'][^>]+content=["']([\s\S]*?)["'][^>]*>/i) ||
+      rawHtml.match(/<meta[^>]+content=["']([\s\S]*?)["'][^>]+name=["']description["'][^>]*>/i);
+    const ogTitleMatch =
+      rawHtml.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([\s\S]*?)["'][^>]*>/i) ||
+      rawHtml.match(/<meta[^>]+content=["']([\s\S]*?)["'][^>]+property=["']og:title["'][^>]*>/i);
+    const ogSiteMatch =
+      rawHtml.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([\s\S]*?)["'][^>]*>/i) ||
+      rawHtml.match(/<meta[^>]+content=["']([\s\S]*?)["'][^>]+property=["']og:site_name["'][^>]*>/i);
+    const ogTypeMatch =
+      rawHtml.match(/<meta[^>]+property=["']og:type["'][^>]+content=["']([\s\S]*?)["'][^>]*>/i) ||
+      rawHtml.match(/<meta[^>]+content=["']([\s\S]*?)["'][^>]+property=["']og:type["'][^>]*>/i);
 
-    const bodyMatch = cappedHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    const rawBody = bodyMatch ? bodyMatch[1] : cappedHtml;
-    const strippedText = decodeHtmlEntities(
-      rawBody
-        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-        .replace(/<[^>]+>/g, ' ')
-    ).slice(0, 1000);
+    const strippedBody = rawHtml
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 3000);
 
-    const lines = [
-      `Source URL: ${res.url || urlObj.toString()}`,
-      title && `Page <title>: ${title}`,
-      ogTitle && ogTitle !== title && `og:title: ${ogTitle}`,
-      ogSiteName && `Site Name: ${ogSiteName}`,
-      ogType && `og:type: ${ogType}`,
-      metaDesc && `Meta Description: ${metaDesc}`,
-      strippedText && `Page Text Excerpt: ${strippedText}`,
-    ].filter(Boolean);
-
-    return lines.length > 1 ? lines.join('\n') : null;
+    return [
+      `Target URL: ${targetUrl}`,
+      titleMatch?.[1] ? `Page Title: ${titleMatch[1].trim()}` : '',
+      ogTitleMatch?.[1] ? `OG Title: ${ogTitleMatch[1].trim()}` : '',
+      ogSiteMatch?.[1] ? `Site Name: ${ogSiteMatch[1].trim()}` : '',
+      ogTypeMatch?.[1] ? `OG Type: ${ogTypeMatch[1].trim()}` : '',
+      descMatch?.[1] ? `Meta Description: ${descMatch[1].trim()}` : '',
+      strippedBody ? `Page Text Excerpt: ${strippedBody}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
   } catch {
-    return null;
+    return `Target URL: ${targetUrl} (Metadata fetch timed out or blocked; infer from URL and context.)`;
   } finally {
-    clearTimeout(timeoutId);
+    clearTimeout(timeout);
   }
 }
 
-export async function POST(req: Request) {
-  try {
-    const usage = readDailyUsage(req);
+async function callGeminiWithFallback(prompt: string, apiKey: string): Promise<string> {
+  let lastError = 'All Gemini models failed.';
 
-    if (usage.count >= DAILY_FREE_LIMIT) {
-      const limitRes = NextResponse.json(
-        {
-          error: `You've used all ${DAILY_FREE_LIMIT} free schema generations for today. Upgrade to Pro for unlimited generations.`,
-          limitReached: true,
-          remainingFree: 0,
-          dailyLimit: DAILY_FREE_LIMIT,
-        },
-        { status: 429 }
-      );
-      return attachUsageCookie(limitRes, usage.day, usage.count);
-    }
-
-    const { prompt, schemaType } = await req.json();
-
-    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
-      return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
-    }
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'GEMINI_API_KEY is missing in Vercel environment variables.' },
-        { status: 500 }
-      );
-    }
-
-    const trimmedPrompt = prompt.trim();
-    const parsedUrl = isValidHttpUrl(trimmedPrompt);
-    let pageContext: string | null = null;
-
-    if (parsedUrl) {
-      pageContext = await fetchPageContext(parsedUrl);
-    }
-
-    const isForcedType = schemaType && schemaType !== 'Auto-Detect';
-    const typeInstruction = isForcedType
-      ? `You MUST set the top-level "@type" to exactly "${schemaType}". Do NOT substitute another type like SoftwareApplication or WebSite.`
-      : 'Automatically choose the single most appropriate valid Schema.org "@type" for the input.';
-
-    const inputSection = pageContext
-      ? `User entered URL: "${trimmedPrompt}"\nExtracted Webpage Metadata & Content:\n${pageContext}`
-      : `User input: "${trimmedPrompt}"`;
-
-    const payload = {
-      contents: [
-        {
-          parts: [
-            {
-              text: `You are an expert SEO engineer. Generate a complete, valid, Google Rich Results compliant JSON-LD object based on the following input.
-${inputSection}
-
-Rules:
-1. Always include "@context": "https://schema.org".
-2. ${typeInstruction}
-3. Ground facts strictly in the provided input/metadata; never invent addresses, phone numbers, prices, or dates that aren't present.
-4. Keep the JSON concise and complete—do not include bloated arrays or unnecessary nested filler.
-5. Return ONLY a single valid JSON object.`,
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        maxOutputTokens: 2048,
-        temperature: 0.2,
-      },
-    };
-
-    let lastStatus = 503;
-
-    for (let sweep = 0; sweep < 2; sweep++) {
-      for (let i = 0; i < MODELS.length; i++) {
-        const model = MODELS[i];
+  for (let sweep = 0; sweep < 2; sweep++) {
+    for (const model of MODELS) {
+      try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-        const response = await fetch(endpoint, {
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.2,
+              responseMimeType: 'application/json',
+            },
+          }),
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          lastStatus = response.status;
+        if (!res.ok) {
+          const errText = await res.text();
+          lastError = `${model} (${res.status}): ${errText.slice(0, 200)}`;
           continue;
         }
 
-        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const cleaned = rawText
-          .replace(/^```(?:json)?\s*/i, '')
-          .replace(/\s*```$/i, '')
-          .trim();
-
-        try {
-          const parsed = JSON.parse(cleaned);
-          if (isForcedType && parsed['@type'] !== schemaType) {
-            parsed['@type'] = schemaType;
-          }
-          const formattedJson = JSON.stringify(parsed, null, 2);
-          const nextCount = usage.count + 1;
-          const remainingFree = Math.max(0, DAILY_FREE_LIMIT - nextCount);
-
-          const successRes = NextResponse.json({
-            schema: formattedJson,
-            urlScanned: Boolean(pageContext),
-            remainingFree,
-            dailyLimit: DAILY_FREE_LIMIT,
-          });
-          return attachUsageCookie(successRes, usage.day, nextCount);
-        } catch {
-          lastStatus = 502;
-          continue;
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text && typeof text === 'string') {
+          return text;
         }
-      }
-
-      if (sweep === 0) {
-        await sleep(1000);
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
       }
     }
 
+    if (sweep === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  throw new Error(lastError);
+}
+
+export async function POST(request: NextRequest) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: 'Server configuration error: GEMINI_API_KEY is missing.' },
+      { status: 500 }
+    );
+  }
+
+  const today = getTodayUTC();
+  const currentCount = readDailyCount(request, today);
+
+  if (currentCount >= DAILY_LIMIT) {
+    const blockedRes = NextResponse.json(
+      {
+        error: 'You have used all 5 free schemas for today. Join the Pro waitlist for unlimited access.',
+        remainingFree: 0,
+      },
+      { status: 429 }
+    );
+    return attachUsageCookie(blockedRes, today, currentCount);
+  }
+
+  let body: { input?: string; schemaType?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON request body.' }, { status: 400 });
+  }
+
+  const rawInput = (body.input || '').trim();
+  const schemaType = (body.schemaType || 'Auto-Detect').trim();
+
+  if (!rawInput) {
+    return NextResponse.json(
+      { error: 'Please enter a website URL or business description.' },
+      { status: 400 }
+    );
+  }
+
+  const contextBlock = isValidHttpUrl(rawInput)
+    ? await scrapeUrlMetadata(rawInput)
+    : `User Description:\n${rawInput}`;
+
+  const typeInstruction =
+    schemaType === 'Auto-Detect'
+      ? 'Choose the most accurate Google Rich Results Schema.org @type (e.g., LocalBusiness, Restaurant, Product, Organization, Article, Service, Event).'
+      : `You MUST use "@type": "${schemaType}".`;
+
+  const prompt = `You are an expert technical SEO engineer specializing in Google Rich Results JSON-LD structured data.
+Generate valid, clean, production-ready Schema.org JSON-LD based ONLY on the facts provided below. Do not invent fake reviews, ratings, prices, or false claims. Omit unknown optional fields rather than fabricating them.
+
+Rules:
+1. Output ONLY raw valid JSON (no markdown code fences, no commentary).
+2. Always include "@context": "https://schema.org".
+3. ${typeInstruction}
+4. Use clean Google-recommended properties (name, url, description, address, telephone, openingHoursSpecification, areaServed, offers, etc., when supported by the input).
+
+Input Context:
+${contextBlock}`;
+
+  try {
+    const rawOutput = await callGeminiWithFallback(prompt, apiKey);
+    const cleaned = rawOutput
+      .replace(/^```(?:json|jsonld)?\s*/i, '')
+      .replace(/```\s*$/i, '')
+      .trim();
+
+    const parsed = JSON.parse(cleaned);
+    if (!parsed['@context']) {
+      parsed['@context'] = 'https://schema.org';
+    }
+    if (schemaType !== 'Auto-Detect') {
+      parsed['@type'] = schemaType;
+    }
+
+    const formattedJson = JSON.stringify(parsed, null, 2);
+    const newCount = currentCount + 1;
+    const remainingFree = Math.max(0, DAILY_LIMIT - newCount);
+
+    const successRes = NextResponse.json({
+      schema: formattedJson,
+      remainingFree,
+    });
+
+    return attachUsageCookie(successRes, today, newCount);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to generate valid JSON-LD.';
     return NextResponse.json(
       {
-        error:
-          'All AI endpoints are experiencing a brief traffic spike. Please click Generate Schema again in a few seconds.',
+        error: `Generation failed: ${message}`,
+        remainingFree: Math.max(0, DAILY_LIMIT - currentCount),
       },
-      { status: lastStatus }
-    );
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || 'Internal Server Error' },
-      { status: 500 }
+      { status: 502 }
     );
   }
 }
